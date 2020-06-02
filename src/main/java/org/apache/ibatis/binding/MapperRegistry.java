@@ -34,6 +34,7 @@ import java.util.Set;
 public class MapperRegistry {
 
     private final Configuration config;
+    // 每一个mapper都会有一个对应的MapperProxyFactory
     private final Map<Class<?>, MapperProxyFactory<?>> knownMappers = new HashMap<Class<?>, MapperProxyFactory<?>>();
 
     public MapperRegistry(Configuration config) {

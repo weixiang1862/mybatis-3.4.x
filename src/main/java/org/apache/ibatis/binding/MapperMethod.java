@@ -42,17 +42,34 @@ import java.util.*;
  */
 public class MapperMethod {
 
+    // sqlCommand，包含了name和type信息
     private final SqlCommand command;
+    // 待执行的method信息
     private final MethodSignature method;
 
+    /**
+     * 初始化SqlCommand和MethodSignature
+     *
+     * @param mapperInterface
+     * @param method
+     * @param config
+     */
     public MapperMethod(Class<?> mapperInterface, Method method, Configuration config) {
         this.command = new SqlCommand(config, mapperInterface, method);
         this.method = new MethodSignature(config, mapperInterface, method);
     }
 
+    /**
+     * method具体的执行逻辑
+     *
+     * @param sqlSession
+     * @param args       method上的参数
+     * @return
+     */
     public Object execute(SqlSession sqlSession, Object[] args) {
         Object result;
         switch (command.getType()) {
+            /*INSERT、UPDATE、DELETE返回int*/
             case INSERT: {
                 Object param = method.convertArgsToSqlCommandParam(args);
                 result = rowCountResult(sqlSession.insert(command.getName(), param));
@@ -68,6 +85,8 @@ public class MapperMethod {
                 result = rowCountResult(sqlSession.delete(command.getName(), param));
                 break;
             }
+
+            /*SELECT可能返回void，many，map，cursor，或者one*/
             case SELECT:
                 if (method.returnsVoid() && method.hasResultHandler()) {
                     executeWithResultHandler(sqlSession, args);
@@ -89,6 +108,7 @@ public class MapperMethod {
             default:
                 throw new BindingException("Unknown execution method for: " + command.getName());
         }
+        // 无法将null转换成基本数据类型（专门处理selectOne 返回值为primitive类型且result为null的）
         if (result == null && method.getReturnType().isPrimitive() && !method.returnsVoid()) {
             throw new BindingException("Mapper method '" + command.getName()
                     + " attempted to return null from a method with a primitive return type (" + method.getReturnType() + ").");
@@ -96,6 +116,12 @@ public class MapperMethod {
         return result;
     }
 
+    /**
+     * insert、update、delete返回rowCount，rowCountResult完成对void，Integer，long，boolean的适配
+     *
+     * @param rowCount
+     * @return
+     */
     private Object rowCountResult(int rowCount) {
         final Object result;
         if (method.returnsVoid()) {
@@ -113,6 +139,7 @@ public class MapperMethod {
     }
 
     private void executeWithResultHandler(SqlSession sqlSession, Object[] args) {
+        // todo 异常校验
         MappedStatement ms = sqlSession.getConfiguration().getMappedStatement(command.getName());
         if (!StatementType.CALLABLE.equals(ms.getStatementType())
                 && void.class.equals(ms.getResultMaps().get(0).getType())) {
@@ -120,6 +147,7 @@ public class MapperMethod {
                     + " needs either a @ResultMap annotation, a @ResultType annotation,"
                     + " or a resultType attribute in XML so a ResultHandler can be used as a parameter.");
         }
+        // 调用resultHandler方法处理
         Object param = method.convertArgsToSqlCommandParam(args);
         if (method.hasRowBounds()) {
             RowBounds rowBounds = method.extractRowBounds(args);
@@ -129,6 +157,14 @@ public class MapperMethod {
         }
     }
 
+    /**
+     * sqlSession对于many类型默认先转成list，根据需要在做转换
+     *
+     * @param sqlSession
+     * @param args
+     * @param <E>
+     * @return
+     */
     private <E> Object executeForMany(SqlSession sqlSession, Object[] args) {
         List<E> result;
         Object param = method.convertArgsToSqlCommandParam(args);
@@ -141,14 +177,24 @@ public class MapperMethod {
         // issue #510 Collections & arrays support
         if (!method.getReturnType().isAssignableFrom(result.getClass())) {
             if (method.getReturnType().isArray()) {
+                // 转数组
                 return convertToArray(result);
             } else {
+                // 转其他类型的Collection
                 return convertToDeclaredCollection(sqlSession.getConfiguration(), result);
             }
         }
         return result;
     }
 
+    /**
+     * 直接调用selectCursor方法
+     *
+     * @param sqlSession
+     * @param args
+     * @param <T>
+     * @return
+     */
     private <T> Cursor<T> executeForCursor(SqlSession sqlSession, Object[] args) {
         Cursor<T> result;
         Object param = method.convertArgsToSqlCommandParam(args);
@@ -161,13 +207,30 @@ public class MapperMethod {
         return result;
     }
 
+    /**
+     * 将list转换成方法实际返回的list
+     *
+     * @param config
+     * @param list
+     * @param <E>
+     * @return
+     */
     private <E> Object convertToDeclaredCollection(Configuration config, List<E> list) {
+        // 使用ObjectFactory创建returnType的Collection
         Object collection = config.getObjectFactory().create(method.getReturnType());
+        // 包装成MetaObject
         MetaObject metaObject = config.newMetaObject(collection);
         metaObject.addAll(list);
         return collection;
     }
 
+    /**
+     * list转array，对primitive类型的特殊处理（可能存在List<Integer>转int[]的情况</>）
+     *
+     * @param list
+     * @param <E>
+     * @return
+     */
     @SuppressWarnings("unchecked")
     private <E> Object convertToArray(List<E> list) {
         Class<?> arrayComponentType = method.getReturnType().getComponentType();
@@ -182,6 +245,15 @@ public class MapperMethod {
         }
     }
 
+    /**
+     * sqlSession接受mapKey作为参数
+     *
+     * @param sqlSession
+     * @param args
+     * @param <K>
+     * @param <V>
+     * @return
+     */
     private <K, V> Map<K, V> executeForMap(SqlSession sqlSession, Object[] args) {
         Map<K, V> result;
         Object param = method.convertArgsToSqlCommandParam(args);
@@ -194,6 +266,12 @@ public class MapperMethod {
         return result;
     }
 
+    /**
+     * 参数map，继承自HashMap
+     * get不到会抛出异常
+     *
+     * @param <V>
+     */
     public static class ParamMap<V> extends HashMap<String, V> {
 
         private static final long serialVersionUID = -2212268410512043556L;
@@ -284,6 +362,9 @@ public class MapperMethod {
         }
     }
 
+    /**
+     * 包含了method的基本信息，返回值类型，RowBounds和ResultHandler参数位置，method参数的解析器
+     */
     public static class MethodSignature {
 
         private final boolean returnsMany;
@@ -309,12 +390,19 @@ public class MapperMethod {
             this.returnsMany = configuration.getObjectFactory().isCollection(this.returnType) || this.returnType.isArray();
             this.returnsCursor = Cursor.class.equals(this.returnType);
             this.mapKey = getMapKey(method);
+            // return map一定要包含mapKey
             this.returnsMap = this.mapKey != null;
             this.rowBoundsIndex = getUniqueParamIndex(method, RowBounds.class);
             this.resultHandlerIndex = getUniqueParamIndex(method, ResultHandler.class);
             this.paramNameResolver = new ParamNameResolver(configuration, method);
         }
 
+        /**
+         * 使用ParamNameResolver将method的args转换成sqlSession需要的格式
+         *
+         * @param args
+         * @return
+         */
         public Object convertArgsToSqlCommandParam(Object[] args) {
             return paramNameResolver.getNamedParams(args);
         }
@@ -323,6 +411,12 @@ public class MapperMethod {
             return rowBoundsIndex != null;
         }
 
+        /**
+         * 从方法参数中解析出RowBounds
+         *
+         * @param args
+         * @return
+         */
         public RowBounds extractRowBounds(Object[] args) {
             return hasRowBounds() ? (RowBounds) args[rowBoundsIndex] : null;
         }
@@ -331,6 +425,12 @@ public class MapperMethod {
             return resultHandlerIndex != null;
         }
 
+        /**
+         * 从方法参数中解析出ResultHandler
+         *
+         * @param args
+         * @return
+         */
         public ResultHandler extractResultHandler(Object[] args) {
             return hasResultHandler() ? (ResultHandler) args[resultHandlerIndex] : null;
         }
@@ -359,6 +459,13 @@ public class MapperMethod {
             return returnsCursor;
         }
 
+        /**
+         * 获取paramType在method参数中的位置，paramType只能出现一次，否则报错
+         *
+         * @param method
+         * @param paramType
+         * @return
+         */
         private Integer getUniqueParamIndex(Method method, Class<?> paramType) {
             Integer index = null;
             final Class<?>[] argTypes = method.getParameterTypes();
@@ -374,6 +481,12 @@ public class MapperMethod {
             return index;
         }
 
+        /**
+         * 获取MapKey注解的value，前提是返回值类型是map
+         *
+         * @param method
+         * @return
+         */
         private String getMapKey(Method method) {
             String mapKey = null;
             if (Map.class.isAssignableFrom(method.getReturnType())) {

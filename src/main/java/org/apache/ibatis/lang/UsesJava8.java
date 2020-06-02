@@ -25,7 +25,7 @@ import java.lang.annotation.Target;
  * <p>
  * Indicates that the element uses Java 8 API.
  * <p>
- * 标注用于Java7，并无实际逻辑，类似于注释
+ * 标注用于Java8，并无实际逻辑，类似于注释
  * </p>
  */
 @Documented
