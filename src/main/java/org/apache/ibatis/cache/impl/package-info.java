@@ -14,6 +14,11 @@
  *    limitations under the License.
  */
 /**
+ *
+ * <cache eviction="回收策略" type="缓存类"/>
+ *
+ * type可以配置具体的impl
+ *
  * Contains the default cache implementation
  */
 package org.apache.ibatis.cache.impl;

@@ -14,6 +14,11 @@
  *    limitations under the License.
  */
 /**
+ *
+ * <cache eviction="回收策略" type="缓存类"/>
+ *
+ * eviction可以配置decorators
+ *
  * Contains cache decorators
  */
 package org.apache.ibatis.cache.decorators;
